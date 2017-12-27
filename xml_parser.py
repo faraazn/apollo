@@ -185,9 +185,9 @@ def prune_dataset(dataset, time_signatures=[], pickups=False, parts=[], note_ran
 					discarded = True
 					pruning_stats['discarded_note_range'].add(score_name)
 					break
-			if score_name in pruning_stats['discarded_note_range']:
-				break
 			for chord in score.getElementsByClass(Chord):
+				if score_name in pruning_stats['discarded_note_range']:
+					break
 				for pitch in chord.pitches:
 					if pitch.midi < note_range[0] or pitch.midi > note_range[1]:
 						discarded = True
@@ -208,8 +208,14 @@ def prune_dataset(dataset, time_signatures=[], pickups=False, parts=[], note_ran
 		# Tested
 		if granularity:
 			for note in score.recurse(classFilter=Note):
-				if note.quarterLength < 4.0 / granularity and note.quarterLength != 0:
-					print(note, note.quarterLength, note.offset, note.activeSite, score_name)
+				if note.quarterLength <= 4.0 / granularity and note.quarterLength != 0:
+					discarded = True
+					pruning_stats['discarded_granularity'].add(score_name)
+					break
+			for chord in score.recurse(classFilter=Chord):
+				if score_name in pruning_stats['discarded_granularity']:
+					break
+				if chord.quarterLength <= 4.0 / granularity and chord.quarterLength != 0:
 					discarded = True
 					pruning_stats['discarded_granularity'].add(score_name)
 					break
@@ -251,7 +257,7 @@ for score_name in corpus:
 	except ZeroDivisionError:
 		pruning_stats['discarded_parse_error'].add(score_name)
 
-prune_dataset(dataset, consistent_measures=True)
+prune_dataset(dataset, granularity=32)
 
 for key in pruning_stats:
 	print(key + ": " + str(len(pruning_stats[key])))
