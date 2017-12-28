@@ -9,6 +9,7 @@ from music21.note import Rest
 from music21.stream import Measure
 from music21.stream import Stream
 import numpy as np
+import matplotlib.pyplot as plt
 
 CORPUS_DIR = '/Users/faraaz/workspace/apollo/data/classical-musicxml/'
 COMPOSERS = ['mozart']
@@ -137,7 +138,7 @@ def decode_score(encoding):
 	score.show()
 	return score
 	
-def prune_dataset(dataset, time_signatures=set(), pickups=False, parts=set(), note_range=[], \
+def prune_dataset(score_names, time_signatures=set(), pickups=False, parts=set(), note_range=[], \
 		num_measures=0, key_signatures=set(), granularity=0, consistent_measures=False, \
 		consistent_time=False, consistent_key=False, consistent_parts=False):
 	assert isinstance(num_measures, int) and num_measures >= 0
@@ -154,11 +155,9 @@ def prune_dataset(dataset, time_signatures=set(), pickups=False, parts=set(), no
 	
 	pruned_dataset = []
 	
-	for score_name, score, composer, period in dataset:
-		if score_name in score_to_stats:
-			score_stats = score_to_stats[score_name]
-		else:
-			score_stats = get_score_stats(score_name, score, composer, period)
+	for score_name in score_names:
+		assert score_name in score_to_stats
+		score_stats = score_to_stats[score_name]
 	
 		discarded = False
 		
@@ -197,7 +196,7 @@ def prune_dataset(dataset, time_signatures=set(), pickups=False, parts=set(), no
 			pruning_stats['discarded_consistent_parts'].add(score_name)
 		
 		if not discarded:
-			pruned_dataset.append(score)
+			pruned_dataset.append(score_name)
 	
 	return pruned_dataset
 
@@ -227,7 +226,6 @@ def get_score_stats(score_name, score, composer, period):
 		if note.quarterLength != 0:
 			note_gran = int(1.0 / note.quarterLength)
 			if granularity == None or note_gran > granularity:
-				print(note, note.offset, note.measureNumber)
 				granularity = note_gran
 			if not (note_gran != 0 and ((note_gran & (note_gran - 1)) == 0)):
 				power_2_notes = False
@@ -245,32 +243,37 @@ def get_score_stats(score_name, score, composer, period):
 	
 	return score_stats
 
-X = []
+def plot_statistic(stat):
+	plt.bar(range(len(stat)), [len(val) for val in stat.values()], align='center')
+	plt.xticks(range(len(stat)), list(stat.keys()))
+	plt.show()
+
+X_score = []
+X_score_name = []
 Y_composer = []
 Y_era = []
-dataset = []
 
 for composer in COMPOSERS:
 	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+composer+"/*.xml")]
 	for score_name in score_names:
 		try:
 			score = music21.converter.parse(CORPUS_DIR+composer+"/"+score_name)
-			dataset.append((score_name, score, composer, 'classical'))
-			X.append(score)
-			Y_composer.append(composer)
 			score_stats = get_score_stats(score_name, score, composer, 'classical')
+			X_score.append(score)
+			X_score_name.append(score_name)
+			Y_composer.append(composer)
+			Y_era.append('classical')
 			for key in score_stats:
-				print(key + ": " + str(score_stats[key]))
 				if score_stats[key] in cumulative_score_stats[key]:
 					cumulative_score_stats[key][score_stats[key]].add(score_name)
 				else:
-					cumulative_score_stats[key][score_stats[key]] = set(score_name)
+					cumulative_score_stats[key][score_stats[key]] = set([score_name])
 			score_to_stats[score_name] = score_stats
 		except ZeroDivisionError:
 			pruning_stats['discarded_parse_error'].add(score_name)
 
-# prune_dataset(dataset, time_signatures=set('3/4', '6/8'))
-prune_dataset(dataset, time_signatures=set(['3/4', '6/8']))
-
+X_score_name_pruned = prune_dataset(X_score_name, time_signatures=set(['3/4', '6/8']))
 for key in pruning_stats:
 	print(key + ": " + str(len(pruning_stats[key])))
+
+plot_statistic(cumulative_score_stats['time_signatures'])
