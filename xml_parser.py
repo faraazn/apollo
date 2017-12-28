@@ -1,15 +1,17 @@
 import os
+import glob
 import music21
 from music21.note import Note
 from music21.chord import Chord
 from music21.meter import TimeSignature
+from music21.key import KeySignature
 from music21.note import Rest
 from music21.stream import Measure
 from music21.stream import Stream
 import numpy as np
 
-CORPUS_DIR = '/Users/faraaz/workspace/apollo/data/classical-musicxml/mozart/'
-corpus = ['m5937_8.xml', 'm15791_5.xml', 'm15715_5.xml', 'm15714_5.xml', 'm17146_3.xml']
+CORPUS_DIR = '/Users/faraaz/workspace/apollo/data/classical-musicxml/'
+COMPOSERS = ['mozart']
 
 MEASURES_PER_CUT = 32
 MAX_NOTE = Note('C8')
@@ -34,6 +36,24 @@ pruning_stats = {
 	'discarded_consistent_time': set(),
 	'discarded_consistent_measures': set()
 	}
+cumulative_score_stats = {
+	'composer': {},
+	'period': {},
+	'num_parts': {},
+	'has_pickup': {},
+	'num_measures': {},
+	'consistent_measures': {},
+	'min_note': {},
+	'max_note': {},
+	'granularity': {},
+	'power_2_notes': {},
+	'time_signatures': {},
+	'key_signatures': {},
+	'consistent_key': {},
+	'consistent_time': {},
+	'consistent_parts': {}
+}
+score_to_stats = {}
 
 def midi_to_note(midi_val):
 	octave = int((midi_val-12) / 12)
@@ -61,7 +81,7 @@ def encode_score(score):
 		for ts in cut_score.getTimeSignatures():
 			assert ts.ratioString == TIME_SIGNATURE.ratioString # discarded time signature
 			print(ts.ratioString)
-		
+		# use recurse on notes?
 		x = np.zeros((int(MEASURES_PER_CUT*GRANULARITY*TIME_SIGNATURE.beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4), NOTE_RANGE))
 		for measure in measures: # TODO: use offsetMap instead?
 			notes = measure.getElementsByClass(Note)
@@ -117,8 +137,8 @@ def decode_score(encoding):
 	score.show()
 	return score
 	
-def prune_dataset(dataset, time_signatures=[], pickups=False, parts=[], note_range=[], \
-		num_measures=0, key_signatures=[], granularity=0, consistent_measures=False, \
+def prune_dataset(dataset, time_signatures=set(), pickups=False, parts=set(), note_range=[], \
+		num_measures=0, key_signatures=set(), granularity=0, consistent_measures=False, \
 		consistent_time=False, consistent_key=False, consistent_parts=False):
 	assert isinstance(num_measures, int) and num_measures >= 0
 	assert isinstance(granularity, int) and granularity >= 0
@@ -134,130 +154,123 @@ def prune_dataset(dataset, time_signatures=[], pickups=False, parts=[], note_ran
 	
 	pruned_dataset = []
 	
-	for score_name, score in dataset:
+	for score_name, score, composer, period in dataset:
+		if score_name in score_to_stats:
+			score_stats = score_to_stats[score_name]
+		else:
+			score_stats = get_score_stats(score_name, score, composer, period)
+	
 		discarded = False
 		
-		# Tested
-		if parts and len(score.parts) not in parts:
+		if parts and score_stats['num_parts'] not in parts:
 			discarded = True
 			pruning_stats['discarded_num_parts'].add(score_name)
-		# Tested
-		if time_signatures:
-			for part in score.parts:
-				if score_name in pruning_stats['discarded_time_signature']:
-					break
-				for ts in part.getTimeSignatures(): # what if contained in measures?
-					if ts.ratioString not in time_signatures:
-						discarded = True
-						pruning_stats['discarded_time_signature'].add(score_name)
-						break
-		# Tested
-		if key_signatures:
-			for part in score.parts:
-				if score_name in pruning_stats['discarded_key_signature']:
-					break
-				for measure in part.getElementsByClass(Measure): 
-					if score_name in pruning_stats['discarded_key_signature']:
-						break
-					for ks in measure.getKeySignatures(): # what if contained in part?
-						if ks.getScale('major').name not in key_signatures:
-							discarded = True
-							pruning_stats['discarded_key_signature'].add(score_name)
-							break
-		# Tested
-		if pickups:
-			for part in score.parts: 
-				if part.measure(1) is not part.getElementsByClass(Measure)[0]:
-					discarded = True
-					pruning_stats['discarded_has_pickup'].add(score_name)
-					break
-		# Tested
-		if num_measures:
-			for part in score.parts:
-				if len(part.getElementsByClass(Measure)) < num_measures: 
-					discarded = True
-					pruning_stats['discarded_num_measures'].add(score_name)
-					break
-		# TODO: test
-		if note_range: # use recurse?
-			for note in score.getElementsByClass(Note):
-				if note.pitches[0].midi < note_range[0] or note.pitches[0].midi > note_range[1]:
-					discarded = True
-					pruning_stats['discarded_note_range'].add(score_name)
-					break
-			for chord in score.getElementsByClass(Chord):
-				if score_name in pruning_stats['discarded_note_range']:
-					break
-				for pitch in chord.pitches:
-					if pitch.midi < note_range[0] or pitch.midi > note_range[1]:
-						discarded = True
-						pruning_stats['discarded_note_range'].add(score_name)
-						break
-		# Tested
-		if consistent_measures:
-			for part in score.parts:
-				if score_name in pruning_stats['discarded_consistent_measures']:
-					break
-				offsets = sorted(part.measureOffsetMap().keys())
-				offset = offsets[1] - offsets[0]
-				for i in range(len(offsets)):
-					if i != 0 and offsets[i] - offsets[i-1] != offset:
-						discarded = True
-						pruning_stats['discarded_consistent_measures'].add(score_name)
-						break
-		# Tested
-		if granularity:
-			for note in score.recurse(classFilter=Note):
-				if note.quarterLength <= 4.0 / granularity and note.quarterLength != 0:
-					discarded = True
-					pruning_stats['discarded_granularity'].add(score_name)
-					break
-			for chord in score.recurse(classFilter=Chord):
-				if score_name in pruning_stats['discarded_granularity']:
-					break
-				if chord.quarterLength <= 4.0 / granularity and chord.quarterLength != 0:
-					discarded = True
-					pruning_stats['discarded_granularity'].add(score_name)
-					break
-		# TODO: test
-		if consistent_time and len(score.getTimeSignatures()) > 1:
+		if time_signatures and not score_stats['time_signatures'].issubset(time_signatures):
+			discarded = True
+			pruning_stats['discarded_time_signature'].add(score_name)
+		if key_signatures and not score_stats['key_signatures'].issubset(key_signatures):
+			discarded = True
+			pruning_stats['discarded_key_signature'].add(score_name)
+		if pickups and score_stats['has_pickup']:
+			discarded = True
+			pruning_stats['discarded_has_pickup'].add(score_name)
+		if num_measures and score_stats['num_measures'] < num_measures:
+			discarded = True
+			pruning_stats['discarded_num_measures'].add(score_name)
+		if note_range and score_stats['min_note'] >= note_range[0] and score_stats['max_note'] <= note_range[1]:
+			discarded = True
+			pruning_stats['discarded_note_range'].add(score_name)
+		if consistent_measures and not score_stats['consistent_measures']:
+			discarded = True
+			pruning_stats['discarded_consistent_measures'].add(score_name)
+		if granularity and score_stats['granularity'] > granularity:
+			discarded = True
+			pruning_stats['discarded_granularity'].add(score_name)
+		if consistent_time and not score_stats['consistent_time']:
 			discarded = True
 			pruning_stats['discarded_consistent_time'].add(score_name)
-		# TODO: test
-		if consistent_key and len(score.getKeySignatures()) > 1:
+		if consistent_key and not score_stats['consistent_key']:
 			discarded = True
 			pruning_stats['discarded_consistent_key'].add(score_name)
-		# TODO: test
-		if consistent_parts:
-			offsets = score.parts[0].measureOffsetMap().keys()
-			ts = score.parts[0].getTimeSignatures()
-			ks = score.parts[0].getKeySignatures()
-			for part in score.parts:
-				if part.measureOffsetMap().keys != offsets or part.getTimeSignatures() != ts or part.getKeySignatures() != ks:
-					discarded = True
-					pruning_stats['discarded_consistent_parts'].add(score_name)
-					break
+		if consistent_parts and not score_stats['consistent_parts']:
+			discarded = True
+			pruning_stats['discarded_consistent_parts'].add(score_name)
 		
 		if not discarded:
 			pruned_dataset.append(score)
 	
 	return pruned_dataset
 
-X = []
-Y = []
-dataset = []
-for score_name in corpus:
-	try: 
-		score = music21.converter.parse(CORPUS_DIR+score_name)
-		dataset.append((score_name, score))
-# 		X_score = encode_score(score)
-# 		X.extend(X_score)
-# 		Y.append('mozart')
-# 		print("Encoded ", song_path)
-	except ZeroDivisionError:
-		pruning_stats['discarded_parse_error'].add(score_name)
+def get_score_stats(score_name, score, composer, period):
+	if score_name in score_to_stats:
+		return score_to_stats[score_name]
+	
+	score_stats = {}
+	score_stats['composer'] = composer
+	score_stats['period'] = period
+	score_stats['num_parts'] = len(score.parts)
+	score_stats['has_pickup'] = score.parts[0].measure(1) is not score.parts[0].getElementsByClass(Measure)[0]
+	score_stats['num_measures'] = len(score.parts[0].getElementsByClass(Measure))
+	score_stats['consistent_measures'] = not np.any(np.diff(np.diff(sorted(score.parts[0].measureOffsetMap().keys()))))
+	
+	min_note = None
+	max_note = None
+	granularity = None
+	power_2_notes = True
+	for note in score.recurse(classFilter=music21.note.GeneralNote):
+		if note.isChord or note.isNote:
+			for pitch in note.pitches:
+				if min_note == None or pitch.midi < min_note:
+					min_note = pitch.midi
+				if max_note == None or pitch.midi > max_note:
+					max_note = pitch.midi
+		if note.quarterLength != 0:
+			note_gran = int(1.0 / note.quarterLength)
+			if granularity == None or note_gran > granularity:
+				print(note, note.offset, note.measureNumber)
+				granularity = note_gran
+			if not (note_gran != 0 and ((note_gran & (note_gran - 1)) == 0)):
+				power_2_notes = False
+	score_stats['min_note'] = min_note
+	score_stats['max_note'] = max_note
+	score_stats['granularity'] = granularity
+	score_stats['power_2_notes'] = power_2_notes
+	
+	score_stats['time_signatures'] = frozenset(ts.ratioString for ts in score.recurse(classFilter=TimeSignature))
+	score_stats['key_signatures'] = frozenset(ks.getScale('major').name for ks in score.recurse(classFilter=KeySignature))
+	
+	score_stats['consistent_key'] = len(score_stats['key_signatures']) == 1
+	score_stats['consistent_time'] = len(score_stats['time_signatures']) == 1
+	score_stats['consistent_parts'] = True # TODO: implement this
+	
+	return score_stats
 
-prune_dataset(dataset, granularity=32)
+X = []
+Y_composer = []
+Y_era = []
+dataset = []
+
+for composer in COMPOSERS:
+	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+composer+"/*.xml")]
+	for score_name in score_names:
+		try:
+			score = music21.converter.parse(CORPUS_DIR+composer+"/"+score_name)
+			dataset.append((score_name, score, composer, 'classical'))
+			X.append(score)
+			Y_composer.append(composer)
+			score_stats = get_score_stats(score_name, score, composer, 'classical')
+			for key in score_stats:
+				print(key + ": " + str(score_stats[key]))
+				if score_stats[key] in cumulative_score_stats[key]:
+					cumulative_score_stats[key][score_stats[key]].add(score_name)
+				else:
+					cumulative_score_stats[key][score_stats[key]] = set(score_name)
+			score_to_stats[score_name] = score_stats
+		except ZeroDivisionError:
+			pruning_stats['discarded_parse_error'].add(score_name)
+
+# prune_dataset(dataset, time_signatures=set('3/4', '6/8'))
+prune_dataset(dataset, time_signatures=set(['3/4', '6/8']))
 
 for key in pruning_stats:
 	print(key + ": " + str(len(pruning_stats[key])))
