@@ -35,7 +35,8 @@ pruning_stats = {
 	'discarded_parse_error': set(),
 	'discarded_consistent_key': set(),
 	'discarded_consistent_time': set(),
-	'discarded_consistent_measures': set()
+	'discarded_consistent_measures': set(),
+	'discarded_%_indivisible': set()
 	}
 cumulative_score_stats = {}
 score_to_stats = {}
@@ -61,31 +62,28 @@ def reset_cumulative_stats():
 		'min_note': {},
 		'max_note': {},
 		'granularity': {},
-		'power_2_notes': {},
+		'divisible_notes': {},
 		'time_signatures': {},
 		'key_signatures': {},
 		'consistent_key': {},
 		'consistent_time': {},
-		'consistent_parts': {}
+		'consistent_parts': {},
+		'%_indivisible': {}
 	}
 
 def get_cut_score(score, measures_per_cut):
-	score = score.flattenParts()
 	X_cut_score = []
 	start_ind = 1
 	cut_score = score.measures(start_ind, start_ind+measures_per_cut-1)
-	while len(cut_score.getElementsByClass(Measure)) == measures_per_cut:
+	while len(cut_score.parts[0].getElementsByClass(Measure)) == measures_per_cut:
 		X_cut_score.append(cut_score)
 		start_ind += measures_per_cut
 		cut_score = score.measures(start_ind, start_ind+measures_per_cut-1)
 	
 	return X_cut_score
 
-# TODO: add check for number of beats actually in measure
 # TODO: add key signature to encoding
 # TODO: add new vs continued note distinction in encoding
-# TODO: add support for pieces with pickups
-# TODO: what happens when time signature denominator != 4
 # TODO: remove dependency on midi_to_note function
 def encode_score(score):
 	assert len(score.parts) == 2 # discarded num parts
@@ -156,7 +154,7 @@ def decode_score(encoding):
 	
 def prune_dataset(score_names, time_signatures=set(), pickups=False, parts=set(), note_range=[], \
 		num_measures=0, key_signatures=set(), granularity=0, consistent_measures=False, \
-		consistent_time=False, consistent_key=False, consistent_parts=False):
+		consistent_time=False, consistent_key=False, consistent_parts=False, percent_indivisible=0.0):
 	assert isinstance(num_measures, int) and num_measures >= 0
 	assert isinstance(granularity, int) and granularity >= 0
 	assert len(note_range) == 0 or (len(note_range) == 2 and note_range[0] <= note_range[1])
@@ -201,6 +199,9 @@ def prune_dataset(score_names, time_signatures=set(), pickups=False, parts=set()
 		if granularity and score_stats['granularity'] > granularity:
 			discarded = True
 			pruning_stats['discarded_granularity'].add(score_name)
+		if percent_indivisible and score_stats['%_indivisible'] >= 0.01:
+			discarded = True
+			pruning_stats['discarded_%_indivisible'].add(score_name)
 		if consistent_time and not score_stats['consistent_time']:
 			discarded = True
 			pruning_stats['discarded_consistent_time'].add(score_name)
@@ -221,25 +222,28 @@ def get_score_stats(score_name, score, composer, period):
 		return score_to_stats[score_name]
 	
 	score_stats = {}
+	# Tested
 	score_stats['composer'] = composer
+	# Tested
 	score_stats['period'] = period
 	
-	if hasattr(score, 'parts'):
-		score_stats['num_parts'] = len(score.parts)
-		score_stats['has_pickup'] = score.parts[0].measure(1) is not score.parts[0].getElementsByClass(Measure)[0]
-		score_stats['num_measures'] = len(score.parts[0].getElementsByClass(Measure))
-		score_stats['consistent_measures'] = not np.any(np.diff(np.diff(sorted(score.parts[0].measureOffsetMap().keys()))))
-	else:
-		score_stats['num_parts'] = 1
-		score_stats['has_pickup'] = score.measure(1) is not score.getElementsByClass(Measure)[0]
-		score_stats['num_measures'] = len(score.getElementsByClass(Measure))
-		score_stats['consistent_measures'] = not np.any(np.diff(np.diff(sorted(score.measureOffsetMap().keys()))))
+	# Tested
+	score_stats['num_parts'] = len(score.parts)
+	# Tested
+	score_stats['has_pickup'] = score.measure(0).parts[0].getElementsByClass(Measure) == 1
+	# Tested
+	score_stats['num_measures'] = len(score.parts[0].getElementsByClass(Measure))
+	# Tested
+	score_stats['consistent_measures'] = not np.any(np.diff(np.diff(sorted(score.parts[0].measureOffsetMap().keys()))))
 	
 	min_note = None
 	max_note = None
 	granularity = None
-	power_2_notes = True
+	divisible_notes = True
+	total_notes = 0
+	indivisible_notes = 0
 	for note in score.recurse(classFilter=music21.note.GeneralNote):
+		total_notes += 1
 		if note.isChord or note.isNote:
 			for pitch in note.pitches:
 				if min_note == None or pitch.midi < min_note:
@@ -247,22 +251,35 @@ def get_score_stats(score_name, score, composer, period):
 				if max_note == None or pitch.midi > max_note:
 					max_note = pitch.midi
 		if note.quarterLength != 0:
-			note_gran = int(1.0 / note.quarterLength)
+			note_gran = 1.0 / (0.25 * note.quarterLength)
 			if granularity == None or note_gran > granularity:
 				granularity = note_gran
-			if not (note_gran != 0 and ((note_gran & (note_gran - 1)) == 0)):
-				power_2_notes = False
+			if note.quarterLength % (4.0 / GRANULARITY) != 0:
+				indivisible_notes += 1
+# 				print(score_name, note.quarterLength, note, note.measureNumber, note.offset, note_gran)
+				divisible_notes = False
+	# Tested
 	score_stats['min_note'] = min_note
+	# Tested
 	score_stats['max_note'] = max_note
+	# Tested
 	score_stats['granularity'] = granularity
-	score_stats['power_2_notes'] = power_2_notes
+	# Tested
+	score_stats['divisible_notes'] = divisible_notes
+	# Tested
+	score_stats['%_indivisible'] = round(indivisible_notes / total_notes, 4)
 	
+	# Tested
 	score_stats['time_signatures'] = frozenset(ts.ratioString for ts in score.recurse(classFilter=TimeSignature))
+	# Tested
 	score_stats['key_signatures'] = frozenset(ks.getScale('major').name for ks in score.recurse(classFilter=KeySignature))
 	
+	# Tested
 	score_stats['consistent_key'] = len(score_stats['key_signatures']) == 1
+	# Tested
 	score_stats['consistent_time'] = len(score_stats['time_signatures']) == 1
-	score_stats['consistent_parts'] = True # TODO: implement this
+	# TODO: implement this
+	score_stats['consistent_parts'] = True
 	
 	return score_stats
 
@@ -334,3 +351,10 @@ for i, score_name in enumerate(X_cut_score_name):
 
 for stat in cumulative_score_stats:
 	plot_statistic(cumulative_score_stats[stat], stat)
+
+for val in cumulative_score_stats['key_signatures']:
+	print(val)
+	for score_name in cumulative_score_stats['key_signatures'][val]:
+		score = X_cut_score[X_cut_score_name.index(score_name)]
+		print(score_name)
+		score.show()
