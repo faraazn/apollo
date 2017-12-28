@@ -37,23 +37,7 @@ pruning_stats = {
 	'discarded_consistent_time': set(),
 	'discarded_consistent_measures': set()
 	}
-cumulative_score_stats = {
-	'composer': {},
-	'period': {},
-	'num_parts': {},
-	'has_pickup': {},
-	'num_measures': {},
-	'consistent_measures': {},
-	'min_note': {},
-	'max_note': {},
-	'granularity': {},
-	'power_2_notes': {},
-	'time_signatures': {},
-	'key_signatures': {},
-	'consistent_key': {},
-	'consistent_time': {},
-	'consistent_parts': {}
-}
+cumulative_score_stats = {}
 score_to_stats = {}
 
 def midi_to_note(midi_val):
@@ -64,6 +48,37 @@ def midi_to_note(midi_val):
 
 assert midi_to_note(108) == 'C8'
 assert midi_to_note(21) == 'A0'
+
+def reset_cumulative_stats():
+	cumulative_score_stats = {
+		'composer': {},
+		'period': {},
+		'num_parts': {},
+		'has_pickup': {},
+		'num_measures': {},
+		'consistent_measures': {},
+		'min_note': {},
+		'max_note': {},
+		'granularity': {},
+		'power_2_notes': {},
+		'time_signatures': {},
+		'key_signatures': {},
+		'consistent_key': {},
+		'consistent_time': {},
+		'consistent_parts': {}
+	}
+
+def get_cut_score(score, measures_per_cut):
+	score = score.flattenParts()
+	X_cut_score = []
+	start_ind = 1
+	cut_score = score.measures(start_ind, start_ind+measures_per_cut-1)
+	while len(cut_score.getElementsByClass(Measure)) == measures_per_cut:
+		X_cut_score.append(cut_score)
+		start_ind += measures_per_cut
+		cut_score = score.measures(start_ind, start_ind+measures_per_cut-1)
+	
+	return X_cut_score
 
 # TODO: add check for number of beats actually in measure
 # TODO: add key signature to encoding
@@ -207,10 +222,17 @@ def get_score_stats(score_name, score, composer, period):
 	score_stats = {}
 	score_stats['composer'] = composer
 	score_stats['period'] = period
-	score_stats['num_parts'] = len(score.parts)
-	score_stats['has_pickup'] = score.parts[0].measure(1) is not score.parts[0].getElementsByClass(Measure)[0]
-	score_stats['num_measures'] = len(score.parts[0].getElementsByClass(Measure))
-	score_stats['consistent_measures'] = not np.any(np.diff(np.diff(sorted(score.parts[0].measureOffsetMap().keys()))))
+	
+	if hasattr(score, 'parts'):
+		score_stats['num_parts'] = len(score.parts)
+		score_stats['has_pickup'] = score.parts[0].measure(1) is not score.parts[0].getElementsByClass(Measure)[0]
+		score_stats['num_measures'] = len(score.parts[0].getElementsByClass(Measure))
+		score_stats['consistent_measures'] = not np.any(np.diff(np.diff(sorted(score.parts[0].measureOffsetMap().keys()))))
+	else:
+		score_stats['num_parts'] = 1
+		score_stats['has_pickup'] = score.measure(1) is not score.getElementsByClass(Measure)[0]
+		score_stats['num_measures'] = len(score.getElementsByClass(Measure))
+		score_stats['consistent_measures'] = not np.any(np.diff(np.diff(sorted(score.measureOffsetMap().keys()))))
 	
 	min_note = None
 	max_note = None
@@ -248,11 +270,13 @@ def plot_statistic(stat):
 	plt.xticks(range(len(stat)), list(stat.keys()))
 	plt.show()
 
+reset_cumulative_stats()
+
+print("Loading dataset...")
 X_score = []
 X_score_name = []
 Y_composer = []
 Y_era = []
-
 for composer in COMPOSERS:
 	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+composer+"/*.xml")]
 	for score_name in score_names:
@@ -272,8 +296,38 @@ for composer in COMPOSERS:
 		except ZeroDivisionError:
 			pruning_stats['discarded_parse_error'].add(score_name)
 
-X_score_name_pruned = prune_dataset(X_score_name, time_signatures=set(['3/4', '6/8']))
-for key in pruning_stats:
-	print(key + ": " + str(len(pruning_stats[key])))
+# X_score_name_pruned = prune_dataset(X_score_name, time_signatures=set(['3/4', '6/8']))
+# for key in pruning_stats:
+# 	print(key + ": " + str(len(pruning_stats[key])))
+# plot_statistic(cumulative_score_stats['time_signatures'])
 
-plot_statistic(cumulative_score_stats['time_signatures'])
+print("Partitioning dataset...")
+X_cut_score = []
+X_cut_score_name = []
+Y_cut_composer = []
+Y_cut_era = []
+for i, score_name in enumerate(X_score_name):
+	score = X_score[i]
+	composer = Y_composer[i]
+	era = Y_era[i]
+	cut_scores = get_cut_score(score, MEASURES_PER_CUT)
+	X_cut_score.extend(cut_scores)
+	X_cut_score_name.extend([score_name+"-"+str(num) for num in range(len(cut_scores))])
+	Y_cut_composer.extend([composer for _ in range(len(cut_scores))])
+	Y_cut_era.extend([era for _ in range(len(cut_scores))])
+
+print("Extracting dataset info...")
+for i, score_name in enumerate(X_cut_score_name):
+	score = X_cut_score[i]
+	composer = Y_cut_composer[i]
+	era = Y_cut_era[i]
+	score_stats = get_score_stats(score_name, score, composer, 'classical')
+	for key in score_stats:
+		if score_stats[key] in cumulative_score_stats[key]:
+			cumulative_score_stats[key][score_stats[key]].add(score_name)
+		else:
+			cumulative_score_stats[key][score_stats[key]] = set([score_name])
+	score_to_stats[score_name] = score_stats
+
+for stat in cumulative_score_stats:
+	plot_statistic(cumulative_score_stats[stat])
