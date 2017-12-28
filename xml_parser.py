@@ -50,6 +50,7 @@ assert midi_to_note(108) == 'C8'
 assert midi_to_note(21) == 'A0'
 
 def reset_cumulative_stats():
+	global cumulative_score_stats
 	cumulative_score_stats = {
 		'composer': {},
 		'period': {},
@@ -265,9 +266,10 @@ def get_score_stats(score_name, score, composer, period):
 	
 	return score_stats
 
-def plot_statistic(stat):
+def plot_statistic(stat, title):
 	plt.bar(range(len(stat)), [len(val) for val in stat.values()], align='center')
 	plt.xticks(range(len(stat)), list(stat.keys()))
+	plt.title(title)
 	plt.show()
 
 reset_cumulative_stats()
@@ -317,6 +319,7 @@ for i, score_name in enumerate(X_score_name):
 	Y_cut_era.extend([era for _ in range(len(cut_scores))])
 
 print("Extracting dataset info...")
+reset_cumulative_stats()
 for i, score_name in enumerate(X_cut_score_name):
 	score = X_cut_score[i]
 	composer = Y_cut_composer[i]
@@ -330,4 +333,4 @@ for i, score_name in enumerate(X_cut_score_name):
 	score_to_stats[score_name] = score_stats
 
 for stat in cumulative_score_stats:
-	plot_statistic(cumulative_score_stats[stat])
+	plot_statistic(cumulative_score_stats[stat], stat)
