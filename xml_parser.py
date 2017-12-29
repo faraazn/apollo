@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 CORPUS_DIR = '/Users/faraaz/workspace/apollo/data/classical-musicxml/'
-COMPOSERS = ['mozart']
+COMPOSERS = ['new_mozart', 'bach', 'beethoven']
 
 MEASURES_PER_CUT = 16
 MAX_NOTE = Note('C8')
@@ -101,7 +101,6 @@ def encode_score(score):
 	return X_score
 
 def decode_score(encoding):
-	print(len(encoding))
 	assert len(encoding) == MEASURES_PER_CUT * STEPS_PER_MEASURE
 	score = Stream()
 	score.timeSignature = TIME_SIGNATURE
@@ -317,6 +316,9 @@ for i, score_name in enumerate(X_cut_score_name):
 			cumulative_score_stats[key][score_stats[key]] = set([score_name])
 	score_to_stats[score_name] = score_stats
 
+for stat in cumulative_score_stats:
+	plot_statistic(cumulative_score_stats[stat], stat)
+
 print("Pruning dataset...")
 reset_cumulative_stats()
 X_pruned_score_name = prune_dataset(X_cut_score_name, \
@@ -372,15 +374,15 @@ X_encoded_score_name = []
 Y_encoded_composer = []
 Y_encoded_era = []
 for i, score_name in enumerate(X_pruned_score_name):
-	if score_name not in cumulative_score_stats['divisible_notes'][False]:
-		continue
 	score = X_pruned_score[i]
-	score.show()
 	composer = Y_pruned_composer[i]
 	era = Y_pruned_era[i]
 	encoded_score = encode_score(score)
-	decoded_score = decode_score(encoded_score)
-	decoded_score.show()
-	break
+	X_encoded_score.append(encoded_score)
+	X_encoded_score_name.append(score_name)
+	Y_encoded_composer.append(composer)
+	Y_encoded_era.append(era)
+X_encoded_score = np.array(X_encoded_score)
+print(X_encoded_score.shape)
 
 print("Done.")
