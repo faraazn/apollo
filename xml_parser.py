@@ -2,6 +2,7 @@ import os
 import glob
 import music21
 from music21.note import Note
+from music21.note import GeneralNote
 from music21.chord import Chord
 from music21.meter import TimeSignature
 from music21.key import KeySignature
@@ -14,7 +15,7 @@ import matplotlib.pyplot as plt
 CORPUS_DIR = '/Users/faraaz/workspace/apollo/data/classical-musicxml/'
 COMPOSERS = ['mozart']
 
-MEASURES_PER_CUT = 32
+MEASURES_PER_CUT = 16
 MAX_NOTE = Note('C8')
 MIN_NOTE = Note('A0')
 MAX_PITCH = MAX_NOTE.pitches[0].midi
@@ -24,6 +25,7 @@ assert MIN_PITCH == 21
 NOTE_RANGE = int(MAX_PITCH - MIN_PITCH + 1)
 TIME_SIGNATURE = TimeSignature('3/4')
 GRANULARITY = 16
+STEPS_PER_MEASURE = GRANULARITY*TIME_SIGNATURE.beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0
 pruning_stats = {
 	'discarded_num_measures': set(),
 	'discarded_time_signature': set(),
@@ -86,58 +88,27 @@ def get_cut_score(score, measures_per_cut):
 # TODO: add new vs continued note distinction in encoding
 # TODO: remove dependency on midi_to_note function
 def encode_score(score):
-	assert len(score.parts) == 2 # discarded num parts
-	score = score.flattenParts()
-	score_X = []
-	start_ind = 1
-	cut_score = score.measures(start_ind, start_ind+MEASURES_PER_CUT-1)
-	measures = cut_score.getElementsByClass(Measure)
-	while len(measures) == MEASURES_PER_CUT:
-		for ts in cut_score.getTimeSignatures():
-			assert ts.ratioString == TIME_SIGNATURE.ratioString # discarded time signature
-			print(ts.ratioString)
-		# use recurse on notes?
-		x = np.zeros((int(MEASURES_PER_CUT*GRANULARITY*TIME_SIGNATURE.beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4), NOTE_RANGE))
-		for measure in measures: # TODO: use offsetMap instead?
-			notes = measure.getElementsByClass(Note)
-			chords = measure.getElementsByClass(Chord)
-			for note in notes:
-				if note.quarterLength < 4.0 / GRANULARITY:
-					continue # discarded high granularity
-				pitch = note.pitches[0].midi
-				if pitch < MIN_PITCH or pitch > MAX_PITCH:
-					continue # discarded pitch out of range
-				ind = (measure.measureNumber-1) % MEASURES_PER_CUT
-				ind *= int(GRANULARITY*TIME_SIGNATURE.beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4)
-				ind += int(note.offset * GRANULARITY/4) 
+	X_score = np.zeros((int(MEASURES_PER_CUT * STEPS_PER_MEASURE), NOTE_RANGE))
+	for note in score.recurse(classFilter=GeneralNote):
+		if note.isChord or note.isNote:
+			for pitch in note.pitches:
+				ind = (note.measureNumber - 1) % MEASURES_PER_CUT
+				ind *= STEPS_PER_MEASURE
+				ind += note.offset * GRANULARITY / 4.0
+				ind = int(ind)
 				for i in range(int(note.quarterLength * GRANULARITY / 4)):
-					x[ind+i][pitch-MIN_PITCH] = 1
-			for chord in chords:
-				if chord.quarterLength < 4.0 / GRANULARITY:
-					continue # discarded high granularity
-				for pitch in chord.pitches:
-					if pitch.midi < MIN_PITCH or pitch.midi > MAX_PITCH:
-						continue # discarded pitch out of range
-					ind = (measure.measureNumber-1) % MEASURES_PER_CUT
-					ind *= int(GRANULARITY*TIME_SIGNATURE.beatCount * TIME_SIGNATURE.beatDuration.quarterLength / 4)
-					ind += int(chord.offset * GRANULARITY/4) 
-					for i in range(int(chord.quarterLength * GRANULARITY / 4)):
-						x[ind+i][pitch.midi-MIN_PITCH] = 1
-		score_X.append(x)
-		start_ind += MEASURES_PER_CUT
-		cut_score = score.measures(start_ind, start_ind+MEASURES_PER_CUT-1)
-		measures = cut_score.getElementsByClass(Measure)
-	return score_X
+					X_score[ind+i][pitch.midi-MIN_PITCH] = 1
+	return X_score
 
 def decode_score(encoding):
 	print(len(encoding))
-	assert len(encoding) == MEASURES_PER_CUT * GRANULARITY * TIME_SIGNATURE.beatCount * TIME_SIGNATURE.beatDuration.quarterLength / 4
+	assert len(encoding) == MEASURES_PER_CUT * STEPS_PER_MEASURE
 	score = Stream()
 	score.timeSignature = TIME_SIGNATURE
 	measure_ind = 0
 	while measure_ind < MEASURES_PER_CUT:
-		start_beat = int(measure_ind * GRANULARITY * TIME_SIGNATURE.beatCount * TIME_SIGNATURE.beatDuration.quarterLength / 4)
-		end_beat = int((measure_ind + 1) * GRANULARITY * TIME_SIGNATURE.beatCount * TIME_SIGNATURE.beatDuration.quarterLength / 4)
+		start_beat = int(measure_ind * STEPS_PER_MEASURE)
+		end_beat = int((measure_ind + 1) * STEPS_PER_MEASURE)
 		measure = Measure()
 		for beat_ind in range(start_beat, end_beat):
 			played_pitches = np.nonzero(encoding[beat_ind])[0]
@@ -190,7 +161,7 @@ def prune_dataset(score_names, time_signatures=set(), pickups=False, parts=set()
 		if num_measures and score_stats['num_measures'] < num_measures:
 			discarded = True
 			pruning_stats['discarded_num_measures'].add(score_name)
-		if note_range and score_stats['min_note'] >= note_range[0] and score_stats['max_note'] <= note_range[1]:
+		if note_range and (score_stats['min_note'] < note_range[0] or score_stats['max_note'] > note_range[1]):
 			discarded = True
 			pruning_stats['discarded_note_range'].add(score_name)
 		if consistent_measures and not score_stats['consistent_measures']:
@@ -199,7 +170,7 @@ def prune_dataset(score_names, time_signatures=set(), pickups=False, parts=set()
 		if granularity and score_stats['granularity'] > granularity:
 			discarded = True
 			pruning_stats['discarded_granularity'].add(score_name)
-		if percent_indivisible and score_stats['%_indivisible'] >= 0.01:
+		if percent_indivisible and score_stats['%_indivisible'] >= percent_indivisible:
 			discarded = True
 			pruning_stats['discarded_%_indivisible'].add(score_name)
 		if consistent_time and not score_stats['consistent_time']:
@@ -242,7 +213,7 @@ def get_score_stats(score_name, score, composer, period):
 	divisible_notes = True
 	total_notes = 0
 	indivisible_notes = 0
-	for note in score.recurse(classFilter=music21.note.GeneralNote):
+	for note in score.recurse(classFilter=GeneralNote):
 		total_notes += 1
 		if note.isChord or note.isNote:
 			for pitch in note.pitches:
@@ -256,7 +227,6 @@ def get_score_stats(score_name, score, composer, period):
 				granularity = note_gran
 			if note.quarterLength % (4.0 / GRANULARITY) != 0:
 				indivisible_notes += 1
-# 				print(score_name, note.quarterLength, note, note.measureNumber, note.offset, note_gran)
 				divisible_notes = False
 	# Tested
 	score_stats['min_note'] = min_note
@@ -289,9 +259,8 @@ def plot_statistic(stat, title):
 	plt.title(title)
 	plt.show()
 
-reset_cumulative_stats()
-
 print("Loading dataset...")
+reset_cumulative_stats()
 X_score = []
 X_score_name = []
 Y_composer = []
@@ -315,11 +284,6 @@ for composer in COMPOSERS:
 		except ZeroDivisionError:
 			pruning_stats['discarded_parse_error'].add(score_name)
 
-# X_score_name_pruned = prune_dataset(X_score_name, time_signatures=set(['3/4', '6/8']))
-# for key in pruning_stats:
-# 	print(key + ": " + str(len(pruning_stats[key])))
-# plot_statistic(cumulative_score_stats['time_signatures'])
-
 print("Partitioning dataset...")
 X_cut_score = []
 X_cut_score_name = []
@@ -334,6 +298,10 @@ for i, score_name in enumerate(X_score_name):
 	X_cut_score_name.extend([score_name+"-"+str(num) for num in range(len(cut_scores))])
 	Y_cut_composer.extend([composer for _ in range(len(cut_scores))])
 	Y_cut_era.extend([era for _ in range(len(cut_scores))])
+del X_score
+del X_score_name
+del Y_composer
+del Y_era
 
 print("Extracting dataset info...")
 reset_cumulative_stats()
@@ -341,7 +309,7 @@ for i, score_name in enumerate(X_cut_score_name):
 	score = X_cut_score[i]
 	composer = Y_cut_composer[i]
 	era = Y_cut_era[i]
-	score_stats = get_score_stats(score_name, score, composer, 'classical')
+	score_stats = get_score_stats(score_name, score, composer, era)
 	for key in score_stats:
 		if score_stats[key] in cumulative_score_stats[key]:
 			cumulative_score_stats[key][score_stats[key]].add(score_name)
@@ -349,12 +317,68 @@ for i, score_name in enumerate(X_cut_score_name):
 			cumulative_score_stats[key][score_stats[key]] = set([score_name])
 	score_to_stats[score_name] = score_stats
 
+print("Pruning dataset...")
+reset_cumulative_stats()
+X_pruned_score_name = prune_dataset(X_cut_score_name, \
+		time_signatures=set(['3/4', '6/8']), \
+		pickups=True, \
+		parts=set([2]), \
+		note_range=[MIN_PITCH, MAX_PITCH], \
+		num_measures=MEASURES_PER_CUT, \
+		consistent_measures=True, \
+		consistent_time=True, \
+		consistent_key=True, \
+		consistent_parts=False, \
+		percent_indivisible=0.01)
+X_pruned_score = []
+Y_pruned_composer = []
+Y_pruned_era = []
+for i, score_name in enumerate(X_pruned_score_name):
+	ind = X_cut_score_name.index(score_name)
+	score = X_cut_score[ind]
+	composer = Y_cut_composer[ind]
+	era = Y_cut_era[ind]
+	score_stats = get_score_stats(score_name, score, composer, era)
+	for key in score_stats:
+		if score_stats[key] in cumulative_score_stats[key]:
+			cumulative_score_stats[key][score_stats[key]].add(score_name)
+		else:
+			cumulative_score_stats[key][score_stats[key]] = set([score_name])
+	score_to_stats[score_name] = score_stats
+	X_pruned_score.append(score)
+	Y_pruned_composer.append(composer)
+	Y_pruned_era.append(era)
+del X_cut_score
+del X_cut_score_name
+del Y_cut_composer
+del Y_cut_era
+
 for stat in cumulative_score_stats:
 	plot_statistic(cumulative_score_stats[stat], stat)
 
-for val in cumulative_score_stats['key_signatures']:
-	print(val)
-	for score_name in cumulative_score_stats['key_signatures'][val]:
-		score = X_cut_score[X_cut_score_name.index(score_name)]
-		print(score_name)
-		score.show()
+for stat in pruning_stats:
+	print(stat, ":", len(pruning_stats[stat]))
+
+# for val in cumulative_score_stats['key_signatures']:
+# 	print(val)
+# 	for score_name in cumulative_score_stats['key_signatures'][val]:
+# 		score = X_cut_score[X_cut_score_name.index(score_name)]
+# 		print(score_name)
+# 		score.show()
+
+print("Encoding dataset...")
+X_encoded_score = []
+X_encoded_score_name = []
+Y_encoded_composer = []
+Y_encoded_era = []
+for i, score_name in enumerate(X_pruned_score_name):
+	score = X_pruned_score[i]
+	score.show()
+	composer = Y_pruned_composer[i]
+	era = Y_pruned_era[i]
+	encoded_score = encode_score(score)
+	decoded_score = decode_score(encoded_score)
+	decoded_score.show()
+	break
+
+print("Done.")
