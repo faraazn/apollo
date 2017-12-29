@@ -90,13 +90,13 @@ def get_cut_score(score, measures_per_cut):
 def encode_score(score):
 	X_score = np.zeros((int(MEASURES_PER_CUT * STEPS_PER_MEASURE), NOTE_RANGE))
 	for note in score.recurse(classFilter=GeneralNote):
-		if note.isChord or note.isNote:
+		if (note.isChord or note.isNote) and note.quarterLength % (4.0 / GRANULARITY) == 0:
 			for pitch in note.pitches:
 				ind = (note.measureNumber - 1) % MEASURES_PER_CUT
 				ind *= STEPS_PER_MEASURE
 				ind += note.offset * GRANULARITY / 4.0
 				ind = int(ind)
-				for i in range(int(note.quarterLength * GRANULARITY / 4)):
+				for i in range(int(note.quarterLength * GRANULARITY / 4.0)):
 					X_score[ind+i][pitch.midi-MIN_PITCH] = 1
 	return X_score
 
@@ -372,6 +372,8 @@ X_encoded_score_name = []
 Y_encoded_composer = []
 Y_encoded_era = []
 for i, score_name in enumerate(X_pruned_score_name):
+	if score_name not in cumulative_score_stats['divisible_notes'][False]:
+		continue
 	score = X_pruned_score[i]
 	score.show()
 	composer = Y_pruned_composer[i]
