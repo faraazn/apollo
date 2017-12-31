@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 CORPUS_DIR = '/Users/faraaz/workspace/apollo/data/classical-musicxml/'
-COMPOSERS = ['new_mozart', 'bach', 'beethoven']
+COMPOSERS = ['bach', 'new_mozart', 'beethoven']
 
 MEASURES_PER_CUT = 16
 MAX_NOTE = Note('C8')
@@ -23,7 +23,7 @@ MIN_PITCH = MIN_NOTE.pitches[0].midi
 assert MAX_PITCH == 108
 assert MIN_PITCH == 21
 NOTE_RANGE = int(MAX_PITCH - MIN_PITCH + 1)
-TIME_SIGNATURE = TimeSignature('3/4')
+TIME_SIGNATURE = TimeSignature('3/8')
 GRANULARITY = 16
 STEPS_PER_MEASURE = GRANULARITY*TIME_SIGNATURE.beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0
 pruning_stats = {
@@ -70,7 +70,7 @@ def reset_cumulative_stats():
 		'consistent_key': {},
 		'consistent_time': {},
 		'consistent_parts': {},
-		'%_indivisible': {}
+		'1%+_indivisible': {}
 	}
 
 def get_cut_score(score, measures_per_cut):
@@ -169,7 +169,7 @@ def prune_dataset(score_names, time_signatures=set(), pickups=False, parts=set()
 		if granularity and score_stats['granularity'] > granularity:
 			discarded = True
 			pruning_stats['discarded_granularity'].add(score_name)
-		if percent_indivisible and score_stats['%_indivisible'] >= percent_indivisible:
+		if percent_indivisible and score_stats['1%+_indivisible']:
 			discarded = True
 			pruning_stats['discarded_%_indivisible'].add(score_name)
 		if consistent_time and not score_stats['consistent_time']:
@@ -200,7 +200,7 @@ def get_score_stats(score_name, score, composer, period):
 	# Tested
 	score_stats['num_parts'] = len(score.parts)
 	# Tested
-	score_stats['has_pickup'] = score.measure(0).parts[0].getElementsByClass(Measure) == 1
+	score_stats['has_pickup'] = len(score.measure(0).parts[0].getElementsByClass(Measure)) == 1
 	# Tested
 	score_stats['num_measures'] = len(score.parts[0].getElementsByClass(Measure))
 	# Tested
@@ -236,7 +236,7 @@ def get_score_stats(score_name, score, composer, period):
 	# Tested
 	score_stats['divisible_notes'] = divisible_notes
 	# Tested
-	score_stats['%_indivisible'] = round(indivisible_notes / total_notes, 4)
+	score_stats['1%+_indivisible'] = indivisible_notes / total_notes > 0.01
 	
 	# Tested
 	score_stats['time_signatures'] = frozenset(ts.ratioString for ts in score.recurse(classFilter=TimeSignature))
@@ -322,7 +322,7 @@ for stat in cumulative_score_stats:
 print("Pruning dataset...")
 reset_cumulative_stats()
 X_pruned_score_name = prune_dataset(X_cut_score_name, \
-		time_signatures=set(['3/4', '6/8']), \
+		time_signatures=set([TIME_SIGNATURE.ratioString]), \
 		pickups=True, \
 		parts=set([2]), \
 		note_range=[MIN_PITCH, MAX_PITCH], \
@@ -330,8 +330,8 @@ X_pruned_score_name = prune_dataset(X_cut_score_name, \
 		consistent_measures=True, \
 		consistent_time=True, \
 		consistent_key=True, \
-		consistent_parts=False, \
-		percent_indivisible=0.01)
+		consistent_parts=True, \
+		percent_indivisible=True)
 X_pruned_score = []
 Y_pruned_composer = []
 Y_pruned_era = []
