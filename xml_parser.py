@@ -9,11 +9,26 @@ from music21.key import KeySignature
 from music21.note import Rest
 from music21.stream import Measure
 from music21.stream import Stream
+from music21.midi import MidiFile
+from music21.musicxml.m21ToXml import ScoreExporter
 import numpy as np
 import matplotlib.pyplot as plt
+import logging
+from time import time
+# import cPickle
+from queue import Queue
+from threading import Thread
 
-CORPUS_DIR = '/Users/faraaz/workspace/apollo/data/classical-musicxml/'
-COMPOSERS = ['bach', 'new_mozart', 'beethoven']
+CORPUS_DIR = '/Users/faraaz/workspace/apollo/data/midi/'
+COMPOSERS = ['bach']
+COMPOSER_TO_ERA = {
+	'bach': 'baroque',
+	'handel': 'baroque',
+	'beethoven': 'classical',
+	'mozart': 'classical',
+	'chopin': 'romantic',
+	'strauss': 'romantic'
+}
 
 MEASURES_PER_CUT = 16
 MAX_NOTE = Note('C8')
@@ -23,7 +38,7 @@ MIN_PITCH = MIN_NOTE.pitches[0].midi
 assert MAX_PITCH == 108
 assert MIN_PITCH == 21
 NOTE_RANGE = int(MAX_PITCH - MIN_PITCH + 1)
-TIME_SIGNATURE = TimeSignature('3/8')
+TIME_SIGNATURE = TimeSignature('4/4')
 GRANULARITY = 16
 STEPS_PER_MEASURE = GRANULARITY*TIME_SIGNATURE.beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0
 pruning_stats = {
@@ -123,8 +138,8 @@ def decode_score(encoding):
 	return score
 	
 def prune_dataset(score_names, time_signatures=set(), pickups=False, parts=set(), note_range=[], \
-		num_measures=0, key_signatures=set(), granularity=0, consistent_measures=False, \
-		consistent_time=False, consistent_key=False, consistent_parts=False, percent_indivisible=0.0):
+		num_measures=0, key_signatures=set(), granularity=0, consistent_measures=False, consistent_time=False, \
+		consistent_key=False, consistent_parts=False, percent_indivisible=0.0, has_key_signature=False):
 	assert isinstance(num_measures, int) and num_measures >= 0
 	assert isinstance(granularity, int) and granularity >= 0
 	assert len(note_range) == 0 or (len(note_range) == 2 and note_range[0] <= note_range[1])
@@ -160,7 +175,7 @@ def prune_dataset(score_names, time_signatures=set(), pickups=False, parts=set()
 		if num_measures and score_stats['num_measures'] < num_measures:
 			discarded = True
 			pruning_stats['discarded_num_measures'].add(score_name)
-		if note_range and (score_stats['min_note'] < note_range[0] or score_stats['max_note'] > note_range[1]):
+		if note_range and note_range[0] and note_range[1] and (score_stats['min_note'] < note_range[0] or score_stats['max_note'] > note_range[1]):
 			discarded = True
 			pruning_stats['discarded_note_range'].add(score_name)
 		if consistent_measures and not score_stats['consistent_measures']:
@@ -258,22 +273,70 @@ def plot_statistic(stat, title):
 	plt.title(title)
 	plt.show()
 
+class DownloadWorker(Thread):
+	def __init__(self, queue):
+		Thread.__init__(self)
+		self.queue = queue
+	def run(self):
+		while True:
+			# Get the work from the queue and expand the tuple
+			ind, score_name, composer = self.queue.get()
+			global X_score_composer
+			global COMPOSER_TO_ERA
+			global CORPUS_DIR
+			midi_path = CORPUS_DIR+composer+"/"+score_name
+			try:
+				mf = MidiFile()
+				mf.open(midi_path)
+				mf.read()
+				mf.close()
+				score = music21.midi.translate.midiFileToStream(mf)
+				X_score_composer[ind] = score
+				score_stats = get_score_stats(score_name, score, composer, COMPOSER_TO_ERA[composer])
+				for key in score_stats:
+					if score_stats[key] in cumulative_score_stats[key]:
+						cumulative_score_stats[key][score_stats[key]].add(score_name)
+					else:
+						cumulative_score_stats[key][score_stats[key]] = set([score_name])
+					score_to_stats[score_name] = score_stats
+			except ZeroDivisionError:
+				pruning_stats['discarded_parse_error'].add(score_name)
+			print("finished", score_name)
+			self.queue.task_done()
+
+
 print("Loading dataset...")
 reset_cumulative_stats()
 X_score = []
+X_score_composer = [] # threadsafe object
 X_score_name = []
 Y_composer = []
 Y_era = []
 for composer in COMPOSERS:
-	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+composer+"/*.xml")]
-	for score_name in score_names:
+	print("Loading", composer)
+# 	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+composer+"/*.xml")]
+	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+composer+"/*.mid")][:5]
+	total = len(score_names)
+	for i, score_name in enumerate(score_names):
+		print(i, score_name)
 		try:
-			score = music21.converter.parse(CORPUS_DIR+composer+"/"+score_name)
-			score_stats = get_score_stats(score_name, score, composer, 'classical')
+			ts = time()
+			mf = MidiFile()
+			mf.open(CORPUS_DIR+composer+"/"+score_name)
+			mf.read()
+			mf.close()
+			print('reading file {}s'.format(time() - ts))
+			ts = time()
+# 			score = music21.converter.parse(CORPUS_DIR+composer+"/"+score_name)
+			score = music21.midi.translate.midiFileToStream(mf)
+			print('converting midi {}s'.format(time() - ts))
+			ts = time()
+			score_stats = get_score_stats(score_name, score, composer, COMPOSER_TO_ERA[composer])
+			print('score_stats {}s'.format(time() - ts))
 			X_score.append(score)
 			X_score_name.append(score_name)
 			Y_composer.append(composer)
-			Y_era.append('classical')
+			Y_era.append(COMPOSER_TO_ERA[composer])
 			for key in score_stats:
 				if score_stats[key] in cumulative_score_stats[key]:
 					cumulative_score_stats[key][score_stats[key]].add(score_name)
@@ -282,13 +345,39 @@ for composer in COMPOSERS:
 			score_to_stats[score_name] = score_stats
 		except ZeroDivisionError:
 			pruning_stats['discarded_parse_error'].add(score_name)
+# ts = time()
+# for composer in COMPOSERS:
+# 	print("Loading", composer)
+# 	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+composer+"/*.mid")][:50]
+# 	total = len(score_names)
+# 	X_score_composer = [0]*total
+# 	# Create a queue to communicate with the worker threads
+# 	queue = Queue()
+# 	# Create 8 worker threads
+# 	for x in range(8):
+# 		worker = DownloadWorker(queue)
+# 		# Setting daemon to True will let the main thread exit even though the workers are blocking
+# 		worker.daemon = True
+# 		worker.start()
+# 	# Put the tasks into the queue as a tuple
+# 	for i, score_name in enumerate(score_names):
+# 		queue.put((i, score_name, composer))
+# 	# Causes the main thread to wait for the queue to finish processing all the tasks
+# 	queue.join()
+# 	X_score.extend(X_score_composer)
+# 	X_score_name.extend(score_names)
+# 	Y_composer.extend([composer]*total)
+# 	Y_era.extend(COMPOSER_TO_ERA[composer]*total)
+# print('Took {}s'.format(time() - ts))
 
 print("Partitioning dataset...")
 X_cut_score = []
 X_cut_score_name = []
 Y_cut_composer = []
 Y_cut_era = []
+total = len(X_score_name)
 for i, score_name in enumerate(X_score_name):
+	print(i, score_name)
 	score = X_score[i]
 	composer = Y_composer[i]
 	era = Y_era[i]
@@ -305,6 +394,7 @@ del Y_era
 print("Extracting dataset info...")
 reset_cumulative_stats()
 for i, score_name in enumerate(X_cut_score_name):
+	print(i, score_name)
 	score = X_cut_score[i]
 	composer = Y_cut_composer[i]
 	era = Y_cut_era[i]
@@ -329,13 +419,15 @@ X_pruned_score_name = prune_dataset(X_cut_score_name, \
 		num_measures=MEASURES_PER_CUT, \
 		consistent_measures=True, \
 		consistent_time=True, \
-		consistent_key=True, \
+		consistent_key=False, \
 		consistent_parts=True, \
-		percent_indivisible=True)
+		percent_indivisible=True, \
+		has_key_signature=True)
 X_pruned_score = []
 Y_pruned_composer = []
 Y_pruned_era = []
 for i, score_name in enumerate(X_pruned_score_name):
+	print(i)
 	ind = X_cut_score_name.index(score_name)
 	score = X_cut_score[ind]
 	composer = Y_cut_composer[ind]
@@ -374,6 +466,7 @@ X_encoded_score_name = []
 Y_encoded_composer = []
 Y_encoded_era = []
 for i, score_name in enumerate(X_pruned_score_name):
+	print(i)
 	score = X_pruned_score[i]
 	composer = Y_pruned_composer[i]
 	era = Y_pruned_era[i]
@@ -384,5 +477,11 @@ for i, score_name in enumerate(X_pruned_score_name):
 	Y_encoded_era.append(era)
 X_encoded_score = np.array(X_encoded_score)
 print(X_encoded_score.shape)
+
+print("Decoding dataset...")
+for i, score in enumerate(X_encoded_score):
+	print(i)
+	decoded_score = decode_score(X_encoded_score[i])
+	decoded_score.show()
 
 print("Done.")
