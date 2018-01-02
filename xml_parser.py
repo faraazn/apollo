@@ -19,7 +19,7 @@ from time import time
 from queue import Queue
 from threading import Thread
 
-CORPUS_DIR = '/Users/faraaz/workspace/apollo/data/midi/'
+CORPUS_DIR = '/Users/faraaz/workspace/apollo/'
 COMPOSERS = ['bach']
 COMPOSER_TO_ERA = {
 	'bach': 'baroque',
@@ -38,7 +38,7 @@ MIN_PITCH = MIN_NOTE.pitches[0].midi
 assert MAX_PITCH == 108
 assert MIN_PITCH == 21
 NOTE_RANGE = int(MAX_PITCH - MIN_PITCH + 1)
-TIME_SIGNATURE = TimeSignature('4/4')
+TIME_SIGNATURE = TimeSignature('6/8')
 GRANULARITY = 16
 STEPS_PER_MEASURE = GRANULARITY*TIME_SIGNATURE.beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0
 pruning_stats = {
@@ -314,21 +314,22 @@ Y_composer = []
 Y_era = []
 for composer in COMPOSERS:
 	print("Loading", composer)
-# 	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+composer+"/*.xml")]
-	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+composer+"/*.mid")][:5]
+	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+"*.xml")]
+# 	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+composer+"/*.mid")][:5]
 	total = len(score_names)
 	for i, score_name in enumerate(score_names):
 		print(i, score_name)
 		try:
 			ts = time()
-			mf = MidiFile()
-			mf.open(CORPUS_DIR+composer+"/"+score_name)
-			mf.read()
-			mf.close()
+# 			mf = MidiFile()
+# 			mf.open(CORPUS_DIR+composer+"/"+score_name)
+# 			mf.read()
+# 			mf.close()
 			print('reading file {}s'.format(time() - ts))
 			ts = time()
-# 			score = music21.converter.parse(CORPUS_DIR+composer+"/"+score_name)
-			score = music21.midi.translate.midiFileToStream(mf)
+			score = music21.converter.parse(CORPUS_DIR+score_name)
+# 			score = music21.midi.translate.midiFileToStream(mf)
+			score.show()
 			print('converting midi {}s'.format(time() - ts))
 			ts = time()
 			score_stats = get_score_stats(score_name, score, composer, COMPOSER_TO_ERA[composer])
