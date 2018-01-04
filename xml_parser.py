@@ -19,8 +19,8 @@ from time import time
 from queue import Queue
 from threading import Thread
 
-CORPUS_DIR = '/Users/faraaz/workspace/apollo/'
-COMPOSERS = ['bach']
+CORPUS_DIR = '/Users/faraaz/workspace/apollo/data/xml/'
+COMPOSERS = ['bach', 'beethoven']
 COMPOSER_TO_ERA = {
 	'bach': 'baroque',
 	'handel': 'baroque',
@@ -38,7 +38,7 @@ MIN_PITCH = MIN_NOTE.pitches[0].midi
 assert MAX_PITCH == 108
 assert MIN_PITCH == 21
 NOTE_RANGE = int(MAX_PITCH - MIN_PITCH + 1)
-TIME_SIGNATURE = TimeSignature('6/8')
+TIME_SIGNATURE = TimeSignature('4/4')
 GRANULARITY = 16
 STEPS_PER_MEASURE = GRANULARITY*TIME_SIGNATURE.beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0
 pruning_stats = {
@@ -134,7 +134,6 @@ def decode_score(encoding):
 				measure.append(chord)
 		score.append(measure)
 		measure_ind += 1
-	score.show()
 	return score
 	
 def prune_dataset(score_names, time_signatures=set(), pickups=False, parts=set(), note_range=[], \
@@ -304,6 +303,25 @@ class DownloadWorker(Thread):
 			print("finished", score_name)
 			self.queue.task_done()
 
+print('4/4', GRANULARITY*TimeSignature('4/4').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('2/2', GRANULARITY*TimeSignature('2/2').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('2/4', GRANULARITY*TimeSignature('2/4').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('12/8', GRANULARITY*TimeSignature('12/8').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('6/8', GRANULARITY*TimeSignature('6/8').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('3/4', GRANULARITY*TimeSignature('3/4').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('3/8', GRANULARITY*TimeSignature('3/8').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('3/2', GRANULARITY*TimeSignature('3/2').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('12/16', GRANULARITY*TimeSignature('12/16').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('9/8', GRANULARITY*TimeSignature('9/8').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('9/16', GRANULARITY*TimeSignature('9/16').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('6/4', GRANULARITY*TimeSignature('6/4').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('4/2', GRANULARITY*TimeSignature('4/2').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('8/8', GRANULARITY*TimeSignature('8/8').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('9/4', GRANULARITY*TimeSignature('9/4').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('6/16', GRANULARITY*TimeSignature('6/16').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('12/32', GRANULARITY*TimeSignature('12/32').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+print('1/16', GRANULARITY*TimeSignature('1/16').beatCount*TIME_SIGNATURE.beatDuration.quarterLength/4.0)
+
 
 print("Loading dataset...")
 reset_cumulative_stats()
@@ -312,28 +330,25 @@ X_score_composer = [] # threadsafe object
 X_score_name = []
 Y_composer = []
 Y_era = []
+ts = time()
 for composer in COMPOSERS:
 	print("Loading", composer)
-	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+"*.xml")]
+	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+composer+"/*.xml")]
 # 	score_names = [os.path.basename(path) for path in glob.glob(CORPUS_DIR+composer+"/*.mid")][:5]
 	total = len(score_names)
 	for i, score_name in enumerate(score_names):
-		print(i, score_name)
+		if i % 10 == 0:
+			print(i, '/', total, ':', score_name)
 		try:
-			ts = time()
+# 			ts = time()
 # 			mf = MidiFile()
 # 			mf.open(CORPUS_DIR+composer+"/"+score_name)
 # 			mf.read()
 # 			mf.close()
-			print('reading file {}s'.format(time() - ts))
-			ts = time()
-			score = music21.converter.parse(CORPUS_DIR+score_name)
+# 			print('reading file {}s'.format(time() - ts))
+			score = music21.converter.parse(CORPUS_DIR+composer+'/'+score_name)
 # 			score = music21.midi.translate.midiFileToStream(mf)
-			score.show()
-			print('converting midi {}s'.format(time() - ts))
-			ts = time()
 			score_stats = get_score_stats(score_name, score, composer, COMPOSER_TO_ERA[composer])
-			print('score_stats {}s'.format(time() - ts))
 			X_score.append(score)
 			X_score_name.append(score_name)
 			Y_composer.append(composer)
@@ -346,6 +361,7 @@ for composer in COMPOSERS:
 			score_to_stats[score_name] = score_stats
 		except ZeroDivisionError:
 			pruning_stats['discarded_parse_error'].add(score_name)
+print('loading time {}s'.format(time() - ts))
 # ts = time()
 # for composer in COMPOSERS:
 # 	print("Loading", composer)
@@ -377,8 +393,10 @@ X_cut_score_name = []
 Y_cut_composer = []
 Y_cut_era = []
 total = len(X_score_name)
+ts = time()
 for i, score_name in enumerate(X_score_name):
-	print(i, score_name)
+	if i % 10 == 0:
+		print(i, '/', total, ':', score_name)
 	score = X_score[i]
 	composer = Y_composer[i]
 	era = Y_era[i]
@@ -391,11 +409,15 @@ del X_score
 del X_score_name
 del Y_composer
 del Y_era
+print('partitioning time {}s'.format(time() - ts))
 
 print("Extracting dataset info...")
 reset_cumulative_stats()
+total = len(X_cut_score_name)
+ts = time()
 for i, score_name in enumerate(X_cut_score_name):
-	print(i, score_name)
+	if i % 10 == 0:
+		print(i, '/', total, ':', score_name)
 	score = X_cut_score[i]
 	composer = Y_cut_composer[i]
 	era = Y_cut_era[i]
@@ -406,16 +428,21 @@ for i, score_name in enumerate(X_cut_score_name):
 		else:
 			cumulative_score_stats[key][score_stats[key]] = set([score_name])
 	score_to_stats[score_name] = score_stats
+print('extracting time {}s'.format(time() - ts))
 
 for stat in cumulative_score_stats:
 	plot_statistic(cumulative_score_stats[stat], stat)
 
+for val in cumulative_score_stats['time_signatures']:
+	print(val, ":", len(cumulative_score_stats['time_signatures'][val]))
+
 print("Pruning dataset...")
 reset_cumulative_stats()
+ts = time()
 X_pruned_score_name = prune_dataset(X_cut_score_name, \
-		time_signatures=set([TIME_SIGNATURE.ratioString]), \
+		time_signatures=set(['4/4', '2/4', '2/2', '6/8', '12/8']), \
 		pickups=True, \
-		parts=set([2]), \
+		parts=set([2, 3, 4]), \
 		note_range=[MIN_PITCH, MAX_PITCH], \
 		num_measures=MEASURES_PER_CUT, \
 		consistent_measures=True, \
@@ -427,8 +454,10 @@ X_pruned_score_name = prune_dataset(X_cut_score_name, \
 X_pruned_score = []
 Y_pruned_composer = []
 Y_pruned_era = []
+total = len(X_pruned_score_name)
 for i, score_name in enumerate(X_pruned_score_name):
-	print(i)
+	if i % 10 == 0:
+		print(i, '/', total, ':', score_name)
 	ind = X_cut_score_name.index(score_name)
 	score = X_cut_score[ind]
 	composer = Y_cut_composer[ind]
@@ -447,6 +476,7 @@ del X_cut_score
 del X_cut_score_name
 del Y_cut_composer
 del Y_cut_era
+print('pruning time {}s'.format(time() - ts))
 
 for stat in cumulative_score_stats:
 	plot_statistic(cumulative_score_stats[stat], stat)
@@ -454,20 +484,16 @@ for stat in cumulative_score_stats:
 for stat in pruning_stats:
 	print(stat, ":", len(pruning_stats[stat]))
 
-# for val in cumulative_score_stats['key_signatures']:
-# 	print(val)
-# 	for score_name in cumulative_score_stats['key_signatures'][val]:
-# 		score = X_cut_score[X_cut_score_name.index(score_name)]
-# 		print(score_name)
-# 		score.show()
-
 print("Encoding dataset...")
 X_encoded_score = []
 X_encoded_score_name = []
 Y_encoded_composer = []
 Y_encoded_era = []
+total = len(X_pruned_score_name)
+ts = time()
 for i, score_name in enumerate(X_pruned_score_name):
-	print(i)
+	if i % 10 == 0:
+		print(i, '/', total, ':', score_name)
 	score = X_pruned_score[i]
 	composer = Y_pruned_composer[i]
 	era = Y_pruned_era[i]
@@ -477,12 +503,16 @@ for i, score_name in enumerate(X_pruned_score_name):
 	Y_encoded_composer.append(composer)
 	Y_encoded_era.append(era)
 X_encoded_score = np.array(X_encoded_score)
+print('encoding time {}s'.format(time() - ts))
 print(X_encoded_score.shape)
 
 print("Decoding dataset...")
+total = len(X_encoded_score)
+ts = time()
 for i, score in enumerate(X_encoded_score):
-	print(i)
+	if i % 10 == 0:
+		print(i, '/', total, ':', score_name)
 	decoded_score = decode_score(X_encoded_score[i])
-	decoded_score.show()
+print('decoding time {}s'.format(time() - ts))
 
 print("Done.")
