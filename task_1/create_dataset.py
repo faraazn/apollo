@@ -364,7 +364,7 @@ del X_score_name
 del Y_composer
 print('partitioning time {}s'.format(time() - ts))
 
-print("Augmenting dataset...")
+print("Augmenting and Saving dataset...")
 X_aug_score = []
 X_aug_score_name = []
 Y_aug_composer = []
@@ -376,41 +376,55 @@ for i, score_name in enumerate(X_cut_score_name):
 	score = X_cut_score[i]
 	composer = Y_cut_composer[i]
 	aug_scores = augment_score_keys(score)
-	X_aug_score.extend(aug_scores)
-	X_aug_score_name.extend([score_name+"-"+str(num) for num in range(len(aug_scores))])
-	Y_aug_composer.extend([composer for _ in range(len(aug_scores))])
+	aug_score_names = [score_name+"-"+str(num) for num in range(len(aug_scores))]
+	for i, aug_score in enumerate(aug_scores):
+		aug_score_name = aug_score_names[i]
+		try:
+			aug_score.write('musicxml', TASK_DIR+composer+'/'+aug_score_name+'.xml')
+			score_stats = get_score_stats(aug_score_name, aug_score, composer)
+			for key in score_stats:
+				if score_stats[key] in cumulative_score_stats[key]:
+					cumulative_score_stats[key][score_stats[key]].add(aug_score_name)
+				else:
+					cumulative_score_stats[key][score_stats[key]] = set([aug_score_name])
+			score_to_stats[aug_score_name] = score_stats
+		except DurationException:
+			print("unable to save:", score_name)
+# 	X_aug_score.extend(aug_scores)
+# 	X_aug_score_name.extend()
+# 	Y_aug_composer.extend([composer for _ in range(len(aug_scores))])
 del X_cut_score
 del X_cut_score_name
 del Y_cut_composer
-print('augmenting time {}s'.format(time() - ts))
+print('augmenting and saving time {}s'.format(time() - ts))
 
-print("Saving dataset...")
-total = len(X_aug_score_name)
-ts = time()
-for i, score_name in enumerate(X_aug_score_name):
-	if i % 10 == 0:
-		print(i, '/', total, ':', score_name)
-	score = X_aug_score[i]
-	composer = Y_aug_composer[i]
-	try:
-		score.write('musicxml', TASK_DIR+composer+'/'+score_name+'.xml')
-		score_stats = get_score_stats(score_name, score, composer)
-		for key in score_stats:
-			if score_stats[key] in cumulative_score_stats[key]:
-				cumulative_score_stats[key][score_stats[key]].add(score_name)
-			else:
-				cumulative_score_stats[key][score_stats[key]] = set([score_name])
-		score_to_stats[score_name] = score_stats
-	except DurationException:
-		print("unable to save:", score_name)
-print('saving time {}s'.format(time() - ts))
+# print("Saving dataset...")
+# total = len(X_aug_score_name)
+# ts = time()
+# for i, score_name in enumerate(X_aug_score_name):
+# 	if i % 10 == 0:
+# 		print(i, '/', total, ':', score_name)
+# 	score = X_aug_score[i]
+# 	composer = Y_aug_composer[i]
+# 	try:
+# 		score.write('musicxml', TASK_DIR+composer+'/'+score_name+'.xml')
+# 		score_stats = get_score_stats(score_name, score, composer)
+# 		for key in score_stats:
+# 			if score_stats[key] in cumulative_score_stats[key]:
+# 				cumulative_score_stats[key][score_stats[key]].add(score_name)
+# 			else:
+# 				cumulative_score_stats[key][score_stats[key]] = set([score_name])
+# 		score_to_stats[score_name] = score_stats
+# 	except DurationException:
+# 		print("unable to save:", score_name)
+# print('saving time {}s'.format(time() - ts))
 
 vals = sorted([val for val in cumulative_score_stats['%_indivisible']])
 for val in vals:
 	print(val, ":", len(cumulative_score_stats['%_indivisible'][val]))
 
-# for stat in cumulative_score_stats:
-# 	plot_statistic(cumulative_score_stats[stat], stat)
+for stat in cumulative_score_stats:
+	plot_statistic(cumulative_score_stats[stat], stat)
 
 print("Pickling stats...")
 ts = time()
