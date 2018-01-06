@@ -42,8 +42,6 @@ pruning_stats = {
 	'discarded_%_divisible': set(),
 	'discarded_num_steps': set()
 	}
-cumulative_score_stats = {}
-score_to_stats = {}
 
 NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 MAJORS = ['C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#', 'F', 'B-', 'E-', 'A-', 'D-', 'G-', 'C-']
@@ -80,7 +78,7 @@ def valid_score(score_name, time_signatures=set(), pickups=False, parts=set(), n
 	if granularity and score_stats['granularity'] > granularity:
 		discarded = True
 		pruning_stats['discarded_granularity'].add(score_name)
-	if percent_indivisible and not score_stats['1%+_divisible']:
+	if percent_indivisible and score_stats['1%+_divisible']:
 		discarded = True
 		pruning_stats['discarded_%_divisible'].add(score_name)
 	if consistent_time and not score_stats['consistent_time']:
