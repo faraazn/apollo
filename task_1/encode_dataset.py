@@ -59,7 +59,7 @@ def midi_to_note(midi_val):
 	return note + str(octave)
 
 def encode_score(score, num_measures, steps_per_cut):
-	X_score = np.zeros((steps_per_cut, NOTE_RANGE))
+	X_score = np.zeros((steps_per_cut, NOTE_RANGE, 1))
 	steps_per_measure = steps_per_cut / num_measures
 	for note in score.recurse(classFilter=GeneralNote):
 		if (note.isChord or note.isNote) and note.quarterLength % (4.0 / GRANULARITY) == 0 :
@@ -69,7 +69,7 @@ def encode_score(score, num_measures, steps_per_cut):
 				ind += note.offset * GRANULARITY / 4.0
 				ind = int(ind)
 				for i in range(int(note.quarterLength * GRANULARITY / 4.0)):
-					X_score[ind+i][pitch.midi-MIN_PITCH] = 1
+					X_score[ind+i][pitch.midi-MIN_PITCH][0] = 1
 	return X_score
 
 def decode_score(encoding, num_measures, ts):
@@ -109,7 +109,7 @@ ts = time()
 for partition in [valid_set, train_set, test_set]:
 	total = len(partition)
 	for i, score_name in enumerate(partition):
-		if i % 10 == 0:
+		if i % 100 == 0:
 			print(i, '/', total, ':', score_name)
 		composer = score_to_stats[score_name]['composer']
 		score = music21.converter.parse(TASK_DIR+composer+'/'+score_name+'.xml')
@@ -134,7 +134,7 @@ Y_comppser = np.load("Y.npy")
 total = len(X_score)
 ts = time()
 for i, score in enumerate(X_score):
-	if i % 10 == 0:
+	if i % 100 == 0:
 		print(i, '/', total, ':', score_name)
 	score_name = X_score_name[i]
 	composer = Y_composer[i]
