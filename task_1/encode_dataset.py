@@ -58,8 +58,11 @@ def midi_to_note(midi_val):
 	note = notes[midi_val % 12]
 	return note + str(octave)
 
-def encode_score(score, num_measures, steps_per_cut):
-	X_score = np.zeros((steps_per_cut, NOTE_RANGE, 1))
+def encode_score(score, num_measures, steps_per_cut, image=False):
+	if image:
+		X_score = np.zeros((steps_per_cut, NOTE_RANGE, 1))
+	else:
+		X_score = np.zeros((steps_per_cut, NOTE_RANGE))
 	steps_per_measure = steps_per_cut / num_measures
 	for note in score.recurse(classFilter=GeneralNote):
 		if (note.isChord or note.isNote) and note.quarterLength % (4.0 / GRANULARITY) == 0 :
@@ -69,10 +72,13 @@ def encode_score(score, num_measures, steps_per_cut):
 				ind += note.offset * GRANULARITY / 4.0
 				ind = int(ind)
 				for i in range(int(note.quarterLength * GRANULARITY / 4.0)):
-					X_score[ind+i][pitch.midi-MIN_PITCH][0] = 1
+					if image:
+						X_score[ind+i][pitch.midi-MIN_PITCH][0] = 1
+					else:
+						X_score[ind+i][pitch.midi-MIN_PITCH] = 1
 	return X_score
 
-def decode_score(encoding, num_measures, ts):
+def decode_score(encoding, num_measures, ts, image=False):
 	score = Stream()
 	score.timeSignature = TimeSignature(ts)
 	steps_per_measure = len(encoding) / num_measures
@@ -82,7 +88,10 @@ def decode_score(encoding, num_measures, ts):
 		end_beat = int((measure_ind + 1) * steps_per_measure)
 		measure = Measure()
 		for beat_ind in range(start_beat, end_beat):
-			played_pitches = np.nonzero(encoding[beat_ind])[0]
+			if image:
+				played_pitches = np.nonzero(encoding[beat_ind])[0]
+			else:
+				played_pitches = np.nonzero(encoding[beat_ind])
 			if len(played_pitches) == 0:
 				measure.append(Rest(quarterLength=4.0/GRANULARITY))
 			else:
@@ -125,6 +134,7 @@ print(X_score.shape)
 np.save("X", X_score)
 np.save("score_names", X_score_name)
 np.save("Y", Y_composer)
+print(len(Y_composer))
 print('encoding time {}s'.format(time() - ts))
 
 print("Decoding dataset...")
