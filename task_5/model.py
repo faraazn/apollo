@@ -8,14 +8,14 @@ import numpy as np
 from six.moves import xrange
 
 from ops import *
-from utils import *
+# from utils import *
 
 def conv_out_size_same(size, stride):
   return int(math.ceil(float(size) / float(stride)))
 
 class DCGAN(object):
-  def __init__(self, sess, input_height=108, input_width=108, crop=True,
-         batch_size=64, sample_num = 64, output_height=64, output_width=64,
+  def __init__(self, sess, input_height=192, input_width=88, crop=True,
+         batch_size=64, sample_num = 64, output_height=192, output_width=88,
          y_dim=None, z_dim=100, gf_dim=64, df_dim=64,
          gfc_dim=1024, dfc_dim=1024, c_dim=3, dataset_name='default',
          input_fname_pattern='*.jpg', checkpoint_dir=None, sample_dir=None):
@@ -70,9 +70,10 @@ class DCGAN(object):
     self.input_fname_pattern = input_fname_pattern
     self.checkpoint_dir = checkpoint_dir
 
-    if self.dataset_name == 'mnist':
-      self.data_X, self.data_y = self.load_mnist()
+    if self.dataset_name == 'music':
+      self.data_X, self.data_y = self.load_music()
       self.c_dim = self.data_X[0].shape[-1]
+      assert self.c_dim == 1
     else:
       self.data = glob(os.path.join("./data", self.dataset_name, self.input_fname_pattern))
       imreadImg = imread(self.data[0])
@@ -160,7 +161,7 @@ class DCGAN(object):
 
     sample_z = np.random.uniform(-1, 1, size=(self.sample_num , self.z_dim))
     
-    if config.dataset == 'mnist':
+    if config.dataset == 'music':
       sample_inputs = self.data_X[0:self.sample_num]
       sample_labels = self.data_y[0:self.sample_num]
     else:
@@ -188,7 +189,7 @@ class DCGAN(object):
       print(" [!] Load failed...")
 
     for epoch in xrange(config.epoch):
-      if config.dataset == 'mnist':
+      if config.dataset == 'music':
         batch_idxs = min(len(self.data_X), config.train_size) // config.batch_size
       else:      
         self.data = glob(os.path.join(
@@ -196,7 +197,7 @@ class DCGAN(object):
         batch_idxs = min(len(self.data), config.train_size) // config.batch_size
 
       for idx in xrange(0, batch_idxs):
-        if config.dataset == 'mnist':
+        if config.dataset == 'music':
           batch_images = self.data_X[idx*config.batch_size:(idx+1)*config.batch_size]
           batch_labels = self.data_y[idx*config.batch_size:(idx+1)*config.batch_size]
         else:
@@ -217,7 +218,7 @@ class DCGAN(object):
         batch_z = np.random.uniform(-1, 1, [config.batch_size, self.z_dim]) \
               .astype(np.float32)
 
-        if config.dataset == 'mnist':
+        if config.dataset == 'music':
           # Update D network
           _, summary_str = self.sess.run([d_optim, self.d_sum],
             feed_dict={ 
@@ -277,8 +278,8 @@ class DCGAN(object):
           % (epoch, idx, batch_idxs,
             time.time() - start_time, errD_fake+errD_real, errG))
 
-        if np.mod(counter, 100) == 1:
-          if config.dataset == 'mnist':
+        if np.mod(counter, 10) == 1:
+          if config.dataset == 'music':
             samples, d_loss, g_loss = self.sess.run(
               [self.sampler, self.d_loss, self.g_loss],
               feed_dict={
@@ -450,30 +451,37 @@ class DCGAN(object):
 
         return tf.nn.sigmoid(deconv2d(h2, [self.batch_size, s_h, s_w, self.c_dim], name='g_h3'))
 
-  def load_mnist(self):
-    data_dir = os.path.join("./data", self.dataset_name)
+  def load_music(self):
+    # data_dir = os.path.join("./data", self.dataset_name)
     
-    fd = open(os.path.join(data_dir,'train-images-idx3-ubyte'))
-    loaded = np.fromfile(file=fd,dtype=np.uint8)
-    trX = loaded[16:].reshape((60000,28,28,1)).astype(np.float)
+    # fd = open(os.path.join(data_dir,'train-images-idx3-ubyte'))
+    # loaded = np.fromfile(file=fd,dtype=np.uint8)
+    # trX = loaded[16:].reshape((60000,28,28,1)).astype(np.float)
 
-    fd = open(os.path.join(data_dir,'train-labels-idx1-ubyte'))
-    loaded = np.fromfile(file=fd,dtype=np.uint8)
-    trY = loaded[8:].reshape((60000)).astype(np.float)
+    # fd = open(os.path.join(data_dir,'train-labels-idx1-ubyte'))
+    # loaded = np.fromfile(file=fd,dtype=np.uint8)
+    # trY = loaded[8:].reshape((60000)).astype(np.float)
 
-    fd = open(os.path.join(data_dir,'t10k-images-idx3-ubyte'))
-    loaded = np.fromfile(file=fd,dtype=np.uint8)
-    teX = loaded[16:].reshape((10000,28,28,1)).astype(np.float)
+    # fd = open(os.path.join(data_dir,'t10k-images-idx3-ubyte'))
+    # loaded = np.fromfile(file=fd,dtype=np.uint8)
+    # teX = loaded[16:].reshape((10000,28,28,1)).astype(np.float)
 
-    fd = open(os.path.join(data_dir,'t10k-labels-idx1-ubyte'))
-    loaded = np.fromfile(file=fd,dtype=np.uint8)
-    teY = loaded[8:].reshape((10000)).astype(np.float)
+    # fd = open(os.path.join(data_dir,'t10k-labels-idx1-ubyte'))
+    # loaded = np.fromfile(file=fd,dtype=np.uint8)
+    # teY = loaded[8:].reshape((10000)).astype(np.float)
 
-    trY = np.asarray(trY)
-    teY = np.asarray(teY)
+    # trY = np.asarray(trY)
+    # teY = np.asarray(teY)
     
-    X = np.concatenate((trX, teX), axis=0)
-    y = np.concatenate((trY, teY), axis=0).astype(np.int)
+    # X = np.concatenate((trX, teX), axis=0)
+    # y = np.concatenate((trY, teY), axis=0).astype(np.int)
+    X = np.load("X_0.npy").astype(np.float32)
+    y = np.load("Y_0.npy").astype(np.int32)
+    print(X.shape)
+    print(y.shape)
+
+    # for idx in xrange(self.z_dim):
+    #   save_images(samples, [image_frame_dim, image_frame_dim], './samples/label_arange_%s.png' % (idx))
     
     seed = 547
     np.random.seed(seed)
@@ -485,7 +493,7 @@ class DCGAN(object):
     for i, label in enumerate(y):
       y_vec[i,y[i]] = 1.0
     
-    return X/255.,y_vec
+    return X, y_vec
 
   @property
   def model_dir(self):
