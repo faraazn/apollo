@@ -248,7 +248,7 @@ for composer in COMPOSERS:
 				aug_scores = augment_score_keys(cut_scores[j])
 				aug_score_names = [score_name+"-"+str(j)+"-"+str(num) for num in range(len(aug_scores))]
 				for k, aug_score in enumerate(aug_scores):
-					aug_score_name = aug_score_names[i]
+					aug_score_name = aug_score_names[k]
 					try:
 						# SAVE
 						aug_score.write('musicxml', TASK_DIR+composer+'/'+aug_score_name+'.xml')
