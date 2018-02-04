@@ -32,7 +32,7 @@ Categories:
 Encodings:
   - Piano roll
 """
-TASK_DIR = '/Users/faraaz/workspace/apollo/task_1/data/'
+TASK_DIR = '/Users/faraaz/workspace/apollo/task_6/data/'
 
 CORPUS_DIR = '/Users/faraaz/workspace/apollo/data/xml/'
 COMPOSERS = ['bach', 'handel', 'beethoven', 'mozart', 'chopin', 'strauss']
@@ -215,11 +215,12 @@ def augment_score_keys(score):
 		augmented_scores.append(aug_score2)
 	return augmented_scores
 
-print("Loading dataset...")
+print("Processing dataset...")
 reset_cumulative_stats()
 X_score = []
 X_score_name = []
 Y_composer = []
+ogts = time()
 ts = time()
 for composer in COMPOSERS:
 	print("Loading", composer)
@@ -227,108 +228,50 @@ for composer in COMPOSERS:
 	total = len(score_names)
 	for i, score_name in enumerate(score_names):
 		if i % 10 == 0:
-			print(i, '/', total, ':', score_name)
+			print(i, '/', total, ':', score_name, ',', str(time()-ts))
+			ts = time()
 		try:
+			# PARSE
 			score = music21.converter.parse(CORPUS_DIR+composer+'/'+score_name+'.xml')
 			score_stats = get_score_stats(score_name, score, composer)
-			X_score.append(score)
-			X_score_name.append(score_name)
-			Y_composer.append(composer)
 			for key in score_stats:
 				if score_stats[key] in cumulative_score_stats[key]:
 					cumulative_score_stats[key][score_stats[key]].add(score_name)
 				else:
 					cumulative_score_stats[key][score_stats[key]] = set([score_name])
 			score_to_stats[score_name] = score_stats
+
+			# PARTITION
+			cut_scores = get_cut_score_numsteps(score, STEPS_PER_CUT)
+			for j in range(len(cut_scores)):
+				# AUGMENT
+				aug_scores = augment_score_keys(cut_scores[j])
+				aug_score_names = [score_name+"-"+str(j)+"-"+str(num) for num in range(len(aug_scores))]
+				for k, aug_score in enumerate(aug_scores):
+					aug_score_name = aug_score_names[i]
+					try:
+						# SAVE
+						aug_score.write('musicxml', TASK_DIR+composer+'/'+aug_score_name+'.xml')
+						score_stats = get_score_stats(aug_score_name, aug_score, composer)
+						for key in score_stats:
+							if score_stats[key] in cumulative_score_stats[key]:
+								cumulative_score_stats[key][score_stats[key]].add(aug_score_name)
+							else:
+								cumulative_score_stats[key][score_stats[key]] = set([aug_score_name])
+						score_to_stats[aug_score_name] = score_stats
+					except DurationException:
+						print("unable to save:", score_name)
+
 		except ZeroDivisionError:
 			pruning_stats['discarded_parse_error'].add(score_name)
-print('loading time {}s'.format(time() - ts))
-
-print("Partitioning dataset...")
-reset_cumulative_stats()
-X_cut_score = []
-X_cut_score_name = []
-Y_cut_composer = []
-total = len(X_score_name)
-ts = time()
-for i, score_name in enumerate(X_score_name):
-	if i % 10 == 0:
-		print(i, '/', total, ':', score_name)
-	score = X_score[i]
-	composer = Y_composer[i]
-	cut_scores = get_cut_score_numsteps(score, STEPS_PER_CUT)
-	X_cut_score.extend(cut_scores)
-	X_cut_score_name.extend([score_name+"-"+str(num) for num in range(len(cut_scores))])
-	Y_cut_composer.extend([composer for _ in range(len(cut_scores))])
-del X_score
-del X_score_name
-del Y_composer
-print('partitioning time {}s'.format(time() - ts))
-
-print("Augmenting and Saving dataset...")
-X_aug_score = []
-X_aug_score_name = []
-Y_aug_composer = []
-total = len(X_cut_score_name)
-ts = time()
-for i, score_name in enumerate(X_cut_score_name):
-	if i % 10 == 0:
-		print(i, '/', total, ':', score_name)
-	score = X_cut_score[i]
-	composer = Y_cut_composer[i]
-	aug_scores = augment_score_keys(score)
-	aug_score_names = [score_name+"-"+str(num) for num in range(len(aug_scores))]
-	for i, aug_score in enumerate(aug_scores):
-		aug_score_name = aug_score_names[i]
-		try:
-			aug_score.write('musicxml', TASK_DIR+composer+'/'+aug_score_name+'.xml')
-			score_stats = get_score_stats(aug_score_name, aug_score, composer)
-			for key in score_stats:
-				if score_stats[key] in cumulative_score_stats[key]:
-					cumulative_score_stats[key][score_stats[key]].add(aug_score_name)
-				else:
-					cumulative_score_stats[key][score_stats[key]] = set([aug_score_name])
-			score_to_stats[aug_score_name] = score_stats
-		except DurationException:
-			print("unable to save:", score_name)
-# 	X_aug_score.extend(aug_scores)
-# 	X_aug_score_name.extend()
-# 	Y_aug_composer.extend([composer for _ in range(len(aug_scores))])
-del X_cut_score
-del X_cut_score_name
-del Y_cut_composer
-print('augmenting and saving time {}s'.format(time() - ts))
-
-# print("Saving dataset...")
-# total = len(X_aug_score_name)
-# ts = time()
-# for i, score_name in enumerate(X_aug_score_name):
-# 	if i % 10 == 0:
-# 		print(i, '/', total, ':', score_name)
-# 	score = X_aug_score[i]
-# 	composer = Y_aug_composer[i]
-# 	try:
-# 		score.write('musicxml', TASK_DIR+composer+'/'+score_name+'.xml')
-# 		score_stats = get_score_stats(score_name, score, composer)
-# 		for key in score_stats:
-# 			if score_stats[key] in cumulative_score_stats[key]:
-# 				cumulative_score_stats[key][score_stats[key]].add(score_name)
-# 			else:
-# 				cumulative_score_stats[key][score_stats[key]] = set([score_name])
-# 		score_to_stats[score_name] = score_stats
-# 	except DurationException:
-# 		print("unable to save:", score_name)
-# print('saving time {}s'.format(time() - ts))
-
-vals = sorted([val for val in cumulative_score_stats['%_indivisible']])
-for val in vals:
-	print(val, ":", len(cumulative_score_stats['%_indivisible'][val]))
-
-for stat in cumulative_score_stats:
-	plot_statistic(cumulative_score_stats[stat], stat)
+		break
+print('total processing time {}s'.format(time() - ogts))
 
 print("Pickling stats...")
 ts = time()
 pickle.dump(cumulative_score_stats, open('cumulative_score_stats.p', 'wb'))
 pickle.dump(score_to_stats, open('score_to_stats.p', 'wb'))
 print('pickling time {}s'.format(time() - ts))
+
+for stat in cumulative_score_stats:
+	plot_statistic(cumulative_score_stats[stat], stat)
